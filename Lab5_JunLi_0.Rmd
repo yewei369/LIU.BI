@@ -1,0 +1,293 @@
+---
+title: "Lab5_JunLi_0"
+subtitle: "Bioinformatics -- 732A51"
+author: "Jun Li"
+date: '2020-12-21'
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval=T,echo=F,
+                      message = F, warning = F, error = F,
+                      fig.width=7, fig.height=5, fig.align="center")
+```
+
+
+
+```{r}
+## prob 1
+library(GEOquery)
+library(simpleaffy)
+library(RColorBrewer)
+library(affyPLM)
+library(limma)
+library(hgu133plus2.db)
+library(annotate)
+library(ggplot2)
+library(seriation)
+library(plotly)
+
+## install.packages("BiocManager")
+## library(BiocManager)
+## source("biocLite.R")
+## BiocManager::install(version = "3.12")
+## BiocManager::install(simpleaffy, type = "source", checkBuilt = TRUE)
+## BiocManager::install("simpleaffy")
+```
+
+## Question 1
+
+There are mainly the following sections included in the codes: generating box plots, cluster dendrogram, normalization and subsequent dendrograms, designing model and contrast matrix, fitting the model, and volcano plots. More details referred to the appendix.
+
+
+```{r,eval=F}
+x = getGEOSuppFiles("GSE20986") ## download data files of GSE20986
+untar("GSE20986_RAW.tar", exdir = "data") ## untar data file
+cels = list.files("data/", pattern = "[gz]")
+sapply(paste("data", cels, sep = "/"), gunzip) ## unzip data
+
+## make data of matrix
+phenodata = matrix(rep(list.files("data"), 2), ncol =2) 
+phenodata <- as.data.frame(phenodata)
+colnames(phenodata) <- c("Name", "FileName")
+phenodata$Targets <- c("iris", 
+                       "retina", 
+                       "retina", 
+                       "iris", 
+                       "retina", 
+                       "iris", 
+                       "choroid", 
+                       "choroid", 
+                       "choroid", 
+                       "huvec", 
+                       "huvec", 
+                       "huvec")
+write.table(phenodata, "data/phenodata.txt", quote = F, sep = "\t", row.names = F)
+
+```
+
+
+```{r}
+## box plot
+celfiles <- read.affy(covdesc = "phenodata.txt", path = "data")
+boxplot(celfiles)
+
+
+## colored box plot with target names
+cols = brewer.pal(8, "Set1")
+eset <- exprs(celfiles)
+samples <- celfiles$Targets
+#colnames(eset) ## array names
+colnames(eset) <- samples
+boxplot(celfiles, col = cols, las = 2)
+
+## Cluster Dendrogram
+distance <- dist(t(eset), method = "maximum")
+clusters <- hclust(distance)
+plot(clusters)
+
+## Normalization
+celfiles.gcrma = gcrma(celfiles)
+par(mfrow=c(1,2))
+boxplot(celfiles.gcrma, col = cols, las = 2, main = "Post-Normalization");
+boxplot(celfiles, col = cols, las = 2, main = "Pre-Normalization")
+#dev.off()
+distance <- dist(t(exprs(celfiles.gcrma)), method = "maximum")
+clusters <- hclust(distance)
+plot(clusters)  ## Cluster Dendrogram after normalization
+
+
+## Design model matrix
+samples <- as.factor(samples)
+design <- model.matrix(~0+samples)
+#colnames(design)
+colnames(design) <- c("choroid", "huvec", "iris", "retina")
+#design
+
+## Make contrast matrix
+contrast.matrix = makeContrasts(
+              huvec_choroid = huvec - choroid, 
+              huvec_retina = huvec - retina, 
+              huvec_iris <- huvec - iris, 
+              levels = design)
+
+## Fit model
+fit = lmFit(celfiles.gcrma, design)
+huvec_fit <- contrasts.fit(fit, contrast.matrix)
+huvec_ebay <- eBayes(huvec_fit)
+
+## 
+probenames.list <- rownames(topTable(huvec_ebay, number = 100000))
+getsymbols <- getSYMBOL(probenames.list, "hgu133plus2")
+results <- topTable(huvec_ebay, number = 100000, coef = "huvec_choroid")
+results <- cbind(results, getsymbols)
+
+print("\nHere comes the summary of results:")
+summary(results)
+
+## 
+results$threshold <- "1"
+a <- subset(results, adj.P.Val < 0.05 & logFC > 5)
+results[rownames(a), "threshold"] <- "2"
+b <- subset(results, adj.P.Val < 0.05 & logFC < -5)
+results[rownames(b), "threshold"] <- "3"
+table(results$threshold)
+
+## Volcano plots
+volcano <- ggplot(data = results, 
+                  aes(x = logFC, y = -1*log10(adj.P.Val), 
+                      colour = threshold, 
+                      label = getsymbols))
+
+volcano <- volcano + 
+  geom_point() + 
+  scale_color_manual(values = c("black", "red", "green"), 
+                     labels = c("Not Significant", "Upregulated", "Downregulated"), 
+                     name = "Key/Legend")
+
+volcano + 
+  geom_text(data = subset(results, logFC > 5 & -1*log10(adj.P.Val) > 5), aes(x = logFC, y = -1*log10(adj.P.Val), colour = threshold, label = getsymbols)  )
+```
+
+
+
+
+## Question 2
+The three contrast are huvec/choroid, huvec/retina, huvec/iris. 
+
+Here come the plots before normalization: 
+
+```{r}
+hm<-function(dis_seq,data){ ## heat-map function
+  set.seed(1234)
+  ord_seq<-get_order(seriate(dis_seq,method="HC")) 
+  dist<-as.matrix(dis_seq)
+  names=colnames(dist)
+  
+  plot_ly(x=names[ord_seq],y=names[ord_seq],z=dist[ord_seq,ord_seq],
+              type="heatmap",colors =colorRamp(c("yellow", "red"))) %>%
+      layout(title=paste("Heatmap",data),
+             xaxis=list(title=""),
+             yaxis=list(title="")) }
+
+
+
+## Before normalization
+da0<-cbind(rowSums(eset[,c(1,4,6)]),rowSums(eset[,c(2,3,5)]),
+           rowSums(eset[,c(7,8,9)]),rowSums(eset[,c(10,11,12)]))
+colnames(da0)<-c('iris','retina','choroid','huvec')
+#da0<-scale(da0)
+
+print("Here comes the MA plot for huvec/choroid:")
+y<-da0[,c(4,3)]
+ma.plot(rowMeans(log2(y)), log2(y[, 1])-log2(y[, 2]), cex=1, main="huvec/choroid")
+print("Here comes the MA plot for huvec/retina:")
+y<-da0[,c(4,2)]
+ma.plot(rowMeans(log2(y)), log2(y[, 1])-log2(y[, 2]), cex=1, main="huvec/retina")
+print("Here comes the MA plot for huvec/iris:")
+y<-da0[,c(4,1)]
+ma.plot(rowMeans(log2(y)), log2(y[, 1])-log2(y[, 2]), cex=1, main="huvec/iris")
+
+
+distance0 <- dist(t(eset), method = "maximum")
+clusters0 <- hclust(distance0)
+plot(clusters0)
+
+dis0=dist(t(da0), method = "maximum")
+hm(dis0,"before Normalization")
+
+```
+
+Here come the plots after normalization: 
+
+
+```{r}
+## After normalization
+norm<-exprs(celfiles.gcrma)
+da1<-cbind(rowSums(norm[,c(1,4,6)]),rowSums(norm[,c(2,3,5)]),
+           rowSums(norm[,c(7,8,9)]),rowSums(norm[,c(10,11,12)]))
+colnames(da1)<-c('iris','retina','choroid','huvec')
+#da0<-scale(da0)
+
+print("Here comes the MA plot for huvec/choroid:")
+y<-da1[,c(4,3)]
+ma.plot(rowMeans(log2(y)), log2(y[, 1])-log2(y[, 2]), cex=1, main="huvec/choroid")
+print("Here comes the MA plot for huvec/retina:")
+y<-da1[,c(4,2)]
+ma.plot(rowMeans(log2(y)), log2(y[, 1])-log2(y[, 2]), cex=1, main="huvec/retina")
+print("Here comes the MA plot for huvec/iris:")
+y<-da1[,c(4,1)]
+ma.plot(rowMeans(log2(y)), log2(y[, 1])-log2(y[, 2]), cex=1, main="huvec/iris")
+
+
+distance1 <- dist(t(norm), method = "maximum")
+clusters1 <- hclust(distance1)
+plot(clusters1)  ## Cluster Dendrogram after normalization
+
+dis1=dist(t(da1), method = "maximum")
+hm(dis1,"after Normalization")
+
+```
+
+
+
+
+
+
+## Question 3
+Here comes the volcano plot for "huvec_retina": 
+
+```{r}
+vol.plot<-function(co){
+results <- topTable(huvec_ebay, number = 100000, coef = co)
+results <- cbind(results, getsymbols)
+
+## 
+results$threshold <- "1"
+a <- subset(results, adj.P.Val < 0.05 & logFC > 5)
+results[rownames(a), "threshold"] <- "2"
+b <- subset(results, adj.P.Val < 0.05 & logFC < -5)
+results[rownames(b), "threshold"] <- "3"
+table(results$threshold)
+
+## Volcano plots
+volcano <- ggplot(data = results, 
+                  aes(x = logFC, y = -1*log10(adj.P.Val), 
+                      colour = threshold, 
+                      label = getsymbols))
+
+volcano <- volcano + 
+  geom_point() + 
+  scale_color_manual(values = c("black", "red", "green"), 
+                     labels = c("Not Significant", "Upregulated", "Downregulated"), 
+                     name = "Key/Legend")
+
+volcano + 
+  geom_text(data = subset(results, logFC > 5 & -1*log10(adj.P.Val) > 5), aes(x = logFC, y = -1*log10(adj.P.Val), colour = threshold, label = getsymbols)  )
+}
+
+vol.plot("huvec_retina")
+```
+
+Here comes the volcano plot for "huvec_iris": 
+
+```{r}
+vol.plot("huvec_iris <- huvec - iris")
+
+```
+
+In volcano plots, x-axis denotes how large the change/difference is, and y-axis for the significancy. The larger both of absolute x and y value are, the better results are. In other words, the points in red/green color with larger y-value than 5 is considered the significantly differentially expressed genes. For example, HOXB7, HOXA5, JL1RL1, SOCS2, CONK for pair huvec_choroid, HOXB7, HOXA5, JL1RL1, GBGT1, DHH, GBGT1 etc for pair huvec_retina, and HOXB7, HOXA5, JL1RL1, HOXB6, SOCS2 for pair huvec_iris.
+
+
+## Question 4
+After comparing GO terms of HOXB7 human, HOXA5 human and HOXA5 chicken, it is found that there are common function 1 (DNA-binding transcription factor activity, RNA polymerase II-specific), function 2 (RNA polymerase II cis-regulatory region sequence-specific DNA binding), process 1 (anterior/posterior pattern specification) and process 2 (regulation of transcription by RNA polymerase II). Those are related more or less with DNA-binding and RNA polymerase which play exactly the key role during the process of expressing genes, such as regulation of transcriptions.
+
+
+
+
+
+
+## Appendix code
+```{r ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+```

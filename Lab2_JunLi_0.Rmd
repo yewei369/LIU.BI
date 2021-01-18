@@ -1,0 +1,319 @@
+---
+title: "Lab2_JunLi_0"
+subtitle: "Bioinformatics -- 732A51"
+author: "Jun Li"
+date: '2020-11-16'
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval=TRUE,echo=F,
+                      message = F, warning = F, error = F,
+                      fig.width=7, fig.height=5, fig.align="center")
+```
+
+```{r}
+library(ape)
+library(seqinr)
+library(phangorn)
+library(markovchain)
+library(msa)
+library(seriation)
+library(plotly)
+library(TotalCopheneticIndex)
+```
+
+
+## Question 1: DNA sequence acquisition and simulation
+### part 1.1
+
+
+```{r}
+### part 1.1
+dna<-read.dna("Lab2_lizard_seqs.fasta",format="fasta")  #C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/
+names<-names(dna)
+len_seq<-NULL
+arti_names<-NULL
+
+set.seed(1234)
+
+sim<-function(file){
+arti_sequences<-NULL
+for(i in 1:33){
+  name<-names[i]
+  len<-length(dna[[name]])
+  len_seq<<-c(len_seq,len)
+  arti_seq<-paste("arti_",name,sep="")
+  arti_names<<-c(arti_names,arti_seq)
+  assign(arti_seq,NULL)
+  for(j in 1:len)
+    assign(arti_seq,c(eval(parse(text=arti_seq)),sample(c('a','c','g','t'),1,prob=c(0.312,0.205,0.231,0.252))))
+  
+  if(i==1)
+   write.fasta(eval(parse(text=arti_seq)),eval(arti_seq), file=paste("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/",file,sep=""),open="w") else
+   write.fasta(eval(parse(text=arti_seq)),eval(arti_seq), file=paste("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/",file,sep=""),open="a")
+  
+}}
+
+sim("Lab2_arti1_seqs.fasta")
+s<- read.dna("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/Lab2_arti1_seqs.fasta",format="fasta")
+print(s)
+
+```
+
+
+
+### part 1.2
+Base compositions of simulated data are approximately the same as original data, which is exactly what we expect.
+
+
+
+```{r}
+### part 1.2
+set.seed(1234)
+tr<-rphylo(33,1,0)  ## rlineage(1, 0, Tmax=2.5)  ##rtree(33)
+tr$tip.label<-arti_names
+plot(tr)
+
+sim<-simSeq(tr, l= 1983, type="DNA", bf=c(0.312,0.205,0.231,0.252), 
+            Q=c(0.312,0.312,0.312,0.231,0.231,0.205))
+
+write.dna(as.DNAbin(sim), 
+       file ="C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/Lab2_arti2_seqs.fasta",
+       format = "fasta", append =FALSE, nbcol = 6, colsep = " ", colw = 10)
+
+s<- read.dna("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/Lab2_arti2_seqs.fasta",format="fasta")
+print(s)
+```
+
+
+## Question 2: Sequence analysis
+### part 2.1
+We take the second simulated sequences from phylogenetic tree as example, refer to the details as follows. And there are no stop codons detected in neither sequences. 
+
+
+```{r}
+lizards_accession_numbers <- c("JF806202", "HM161150", "FJ356743", "JF806205", 
+                               "JQ073190", "GU457971", "FJ356741", "JF806207",
+                               "JF806210", "AY662592", "AY662591", "FJ356748",       
+                               "JN112660", "AY662594", "JN112661", "HQ876437", 
+                               "HQ876434", "AY662590", "FJ356740", "JF806214", 
+                               "JQ073188", "FJ356749", "JQ073189", "JF806216", 
+                               "AY662598", "JN112653", "JF806204", "FJ356747", 
+                               "FJ356744", "HQ876440", "JN112651", "JF806215",
+                               "JF806209") 
+true<-ape::read.GenBank(lizards_accession_numbers)
+simu<-read.dna("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/Lab2_arti2_seqs.fasta",format="fasta")
+
+GCcon<-function(v){ ## v, character vector of acgt
+  n<-length(v)
+  count<-0
+  for(i in 1:n) if(v[i]=="c" | v[i]=="g") count<-count+1
+  return(count/n)
+}
+
+num2nucleo<-function(v){#  convert DNAbin from (88,28,48,18) to (a,c,g,t)
+  n<-length(v) ## v, character vector of (88,28,48,18)
+  for(i in 1:n) {
+    if(v[i]=="88") v[i]="a" 
+    if(v[i]=="28") v[i]="c" 
+    if(v[i]=="48") v[i]="g"
+    if(v[i]=="18" | v[i]=="30") v[i]="t"
+    if(v[i]=="c0") v[i]=sample(c("a","g"),1,prob=c(0.5,0.5))   ## R
+    if(v[i]=="a0") v[i]=sample(c("a","c"),1,prob=c(0.5,0.5))   ## M
+    if(v[i]=="60") v[i]=sample(c("g","c"),1,prob=c(0.5,0.5))   ## S
+    }
+  return(v)}
+
+num2prot<-function(v){#  convert DNAbin from labels to protein codes
+  n<-length(v) ## v, character vector of labels
+  for(i in 1:n) {
+    if(v[i]=="41") v[i]="A" 
+    if(v[i]=="57") v[i]="W" 
+    if(v[i]=="49") v[i]="I"
+    if(v[i]=="54") v[i]="T"
+    if(v[i]=="47") v[i]="G" 
+    if(v[i]=="53") v[i]="S" 
+    if(v[i]=="51") v[i]="Q"
+    if(v[i]=="4b") v[i]="K"
+    if(v[i]=="4d") v[i]="M" 
+    if(v[i]=="46") v[i]="F" 
+    if(v[i]=="4c") v[i]="L"
+    if(v[i]=="43") v[i]="C"
+    if(v[i]=="50") v[i]="P" 
+    if(v[i]=="2a") v[i]="*"
+    if(v[i]=="44") v[i]="D"
+    if(v[i]=="45") v[i]="E"
+    if(v[i]=="48") v[i]="H"
+    if(v[i]=="4e") v[i]="N"
+    if(v[i]=="52") v[i]="R"
+    if(v[i]=="56") v[i]="V"
+    if(v[i]=="59") v[i]="Y"}
+  return(v)}
+
+nstop<-function(v){ ## v, character vector of acgt
+  n<-length(v)
+  count<-0
+  for(i in 1:(n-2)) {
+    temp=paste(v[i:i+2],collapse="")
+    if(temp %in% c("taa","tag","tga")) count<-count+1}
+  return(count)
+}
+
+
+print("Here come the brief about simulated sequences:")
+for(i in 1:33) {
+  seq<-as.character(as.list(simu[i,])[[arti_names[i]]])
+  nuc<-num2nucleo(seq)
+  cat("For sequence",i,":\n")
+  cat("*Base composition:\n")
+  print(base.freq(simu[i,]))
+  cat("*GC content:\n")
+  print(GC.content(simu[i,]))
+  cat("*AT content:\n")
+  print(1-GC.content(simu[i,]))
+  cat("*number of stop codons:\n")
+  print(nstop(nuc))
+  
+  cat("\n")
+}
+
+print("Here come the amino composition of simulated proteins:")
+simu_prot<-read.FASTA("Lab2_arti2_protein.fasta",type="AA")
+for(i in 1:33){
+  seq<-num2prot(as.character(simu_prot[[paste(arti_names[i],"_1",sep="")]]))
+  aa<-levels(factor(seq))
+  ct<-rep(0,21)
+  for(j in 1:21) ct[j]<-round(sum(seq==aa[j])/length(seq),2)
+  cat("For sequence",i,":\n")
+  cat("*Amino acid composition:\n")
+  print(aa);  cat("\n")
+  print(ct);  cat("\n")
+
+}
+  
+
+
+print("Here come the number of stop codons in true sequences:")
+count_stop_true<-0
+for(i in 1:33) {
+  seq<-as.character(true[[names[i]]])
+  nuc<-num2nucleo(seq)
+  count_stop_true<-count_stop_true+nstop(nuc)
+}
+print(count_stop_true)
+  
+
+## labels(simu[1,])
+## (a,c,g,t)-->(88,28,48,18)
+```
+
+### part 2.2
+Fitted model from simulations present approximately the same pattern as in the true base compositions, i.e. for every state its transition state follows uniform probability of (0.31,0.2,0.23,0.25). While the model from true model present more varying patterns among states. Besides, model fitting violates the assumption that stationary transition pattern persists and current state depends only on its previous state, since when the sequences are concatenated together the stationary probability model has been infringed.
+
+
+```{r}
+simu1<-read.dna("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/Lab2_arti1_seqs.fasta",format="fasta")
+simu2<-read.dna("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/Lab2_arti2_seqs.fasta",format="fasta")
+true<-read.dna("Lab2_lizard_seqs.fasta",format="fasta")
+
+train<-function(fasta,labels){
+  longseq<-NULL
+  if(is.null(names(fasta)))
+  {for(i in 1:33) longseq<-c(longseq,num2nucleo(as.character(fasta[[labels[i]]])))} else
+  {for(i in 1:33) longseq<-c(longseq,num2nucleo(as.character(as.list(fasta)[[labels[i]]])))}
+  return(markovchainFit(longseq))
+}
+
+print("Here comes the fitted Markov-Chain model for the first simulated sequences:")
+longseq<-NULL
+for(i in 1:33) longseq<-c(longseq,num2nucleo(as.character(simu1[[arti_names[i]]])))
+markovchainFit(longseq)$estimate
+
+print("Here comes the fitted Markov-Chain model for the second simulated sequences:")
+longseq<-NULL
+for(i in 1:33) longseq<-c(longseq,num2nucleo(as.character(as.list(simu2)[[arti_names[i]]])))
+markovchainFit(longseq)$estimate
+
+print("Here comes the fitted Markov-Chain model for the true sequences:")
+longseq<-NULL
+for(i in 1:33) longseq<-c(longseq,num2nucleo(as.character(true[[names[i]]])))
+markovchainFit(longseq)$estimate
+
+```
+
+
+### part 2.3
+The heatmaps show that simulations present only high similarity between the same sequences, i.e. all simulated sequences are hardly similar to each other, which can be explained by the random sampling. While the true sequences show significant similarity between some, e.g. JF806204/JN112661, GU457971/FJ356741.
+
+
+```{r}
+dis<-function(file){
+  align0<-msa(file,type="dna")
+  align1<- msaConvert(align0, type="seqinr::alignment")  ## convert object
+  dis_seq<-dist.alignment(align1, "similarity")
+  return (list(align0=align0,dis_seq=dis_seq))}
+
+hm<-function(dis_seq,data){
+  set.seed(1234)
+  ord_seq<-get_order(seriate(dis_seq,method="HC")) 
+  dist<-as.matrix(dis_seq)
+  
+  plot_ly(x=names[ord_seq],y=names[ord_seq],z=dist[ord_seq,ord_seq],
+              type="heatmap",colors =colorRamp(c("yellow", "red"))) %>%
+      layout(title=paste("Heatmap of",data),
+             xaxis=list(title="Sites"),
+             yaxis=list(title="Sequences")) }
+
+dis_arti1<-dis("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/Lab2_arti1_seqs.fasta")
+hm(dis_arti1$dis_seq,"Simulations 1")
+dis_arti2<-dis("C:/Users/A550240/Desktop/LIU/3.2_BioInformatics/Lab2_arti2_seqs.fasta")
+hm(dis_arti2$dis_seq,"Simulations 2")
+dis_true<-dis("Lab2_lizard_seqs.fasta")
+hm(dis_true$dis_seq,"True sequence")
+```
+
+
+## Question 3: Phylogeny reconstruction
+
+### part 3.1
+The fitted trees based on 2 simulations are significantly different from the true one. 
+
+
+```{r}
+tr1<-nj(dis_arti1$dis_seq) 
+tr1<-makeLabel(tr1, space="")
+tr1_boot<-boot.phylo(tr1, as.matrix(dis_arti1$dis_seq), function(e) nj(as.dist(e)),1e3)
+plot.phylo(tr1)   # type="u" plot the unrooted phylogenetic tree
+nodelabels(tr1_boot,cex=0.7)    # plot the bootstrap values
+tr1$node.label <- tr1_boot   # make the bootstrap values be the node labels
+title("A Simple NJ Tree for Simulations 1")
+
+tr2<-nj(dis_arti2$dis_seq) 
+tr2<-makeLabel(tr2, space="")
+tr2_boot<-boot.phylo(tr2, as.matrix(dis_arti2$dis_seq), function(e) nj(as.dist(e)),1e3)
+plot.phylo(tr2)   # type="u" plot the unrooted phylogenetic tree
+nodelabels(tr2_boot,cex=0.7)    # plot the bootstrap values
+tr2$node.label <- tr2_boot   # make the bootstrap values be the node labels
+title("A Simple NJ Tree for Simulations 2")
+
+tr<-nj(dis_true$dis_seq) 
+tr<-makeLabel(tr, space="")
+tr_boot<-boot.phylo(tr, as.matrix(dis_true$dis_seq), function(e) nj(as.dist(e)),1e3)
+plot.phylo(tr)   # type="u" plot the unrooted phylogenetic tree
+nodelabels(tr_boot,cex=0.7)    # plot the bootstrap values
+tr$node.label <- tr_boot   # make the bootstrap values be the node labels
+title("A Simple NJ Tree for True sequence")
+```
+
+
+### part 3.2
+Values from bootstrap analysis are useful in this case, the larger the better, a higher value denotes inferred trees are more likely to repeat the original sequence pattern. Inferred tree for first simulation has mean bootstrap analysis value of 43.8, and second simulation of 46, and true sequence of 44.4.
+
+Total Cophenetic Index measures the imbalance of any phylogenetic tree, the lower the better, a lower value denotes a perfectly resolved tree. In this case, simulation 1 has index of 606, simulation of 792 and true sequence of 612. 
+
+
+## Appendix code
+```{r ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+```

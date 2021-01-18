@@ -1,0 +1,212 @@
+---
+title: "Lab4_JunLi_0"
+subtitle: "Bioinformatics -- 732A51"
+author: "Jun Li"
+date: '2020-12-10'
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval=F,echo=F,
+                      message = F, warning = F, error = F,
+                      fig.width=7, fig.height=5, fig.align="center")
+```
+
+
+
+```{r}
+## prob 1
+library(ape)
+library(R.ROSETTA)
+library(VisuNet)
+
+```
+
+## Prob 2
+a. What does the data represent? Data collects information over interaction between gene features and target whether the subject has autism. 
+
+b. What is the number of features? 35 features and 1 target
+
+
+c. What is the number of objects in each class? 82 autism and 64 control
+
+d. Do you think the distribution of objects is balanced? It seems quite balanced
+
+
+```{r}
+## prob 2
+data(autcon)
+#View(autcon)
+#dim(autcon)
+#table(autcon$decision)
+```
+
+## Prob 3
+
+a. Provide definition for a k-fold cross-validation (CV) process. (K-fold cross-validation is a method for selecting optimal model through dividing dataset into k parts, traing on (k-1) parts and validating on the last k-th part. After k-times training/validating, the model with highest mean accuracy should be selected.) 
+
+b. How many CVs are performed in rosetta by default? (10)
+
+c. What is a default reduction method? What is it used for? (Johnson is defaulted reducer,used to identify an ordered list of attributes that best discriminates between decision classes) 
+
+d. What is a default method of discretization? Describe it shortly. How many discretization levels are
+created? (EqualFrequency is default discretization method, which divides the range into groups by equal frequency and same instances/values in every group. Number of discretization levels can be specified by discreteParam, but default as 3.)
+
+
+e. What is the mean accuracy and mean AUC of the estimated model? (mean accuracy is (TP+TN)/(TP+TN+FP+FN) 0.804242 in this model, AUC is the area under ROC curve 0.87741 in this model)
+
+f. How many rules did you obtain in total? (193)
+
+g. Which decision class got more significant rules? Assume the rule to be significant if the p-value (pValue)
+is lower than 0.01. (45 significant rules for autism and 56 for control)
+
+h. R.ROSETTA allows to print rules in the IF-THEN form. Use viewRules() function and print top
+5 rules for each decision class. Do you think that the quality of rules is good enough? Explain your
+answer. (The rules have very good quality, since the accuracy are high, and with quite high support numbers. When combining several rules, the classification result should be excellent.)
+
+```{r,eval=F}
+## prob 3
+rbm <- rosetta(autcon, cvNum = 10, roc = TRUE, clroc = "autism", underSample = FALSE)
+
+#?rosetta # check rosetta parameters
+rules <- rbm$main # rule set
+quality <- rbm$quality # model quality
+#dim(rules) # how many rules?
+# number of significant rules per class
+# for autism
+pval <- 0.01
+#length(which(rules[which(rules$decision=="autism"),]$pValue < pval))
+# for control
+#length(which(rules[which(rules$decision=="control"),]$pValue < pval))
+# top 5 rules for autism
+#viewRules(rules[which(rules$decision=="autism"),])[1:5,]
+# top 5 rules for control
+#viewRules(rules[which(rules$decision=="control"),])[1:5,]
+```
+
+
+
+
+
+
+## Prob 4
+Sensitivity=TP/(TP+FN), Specificity=TN/(TN+FP). The model quality is high, since the mean AUC is 0.88, which is high.
+
+!["ROC"](./ROC.png)
+
+```{r}
+## prob 4
+#ROC curve
+plotMeanROC(rbm,col = "darkblue", backCol = "lightskyblue") #
+
+``` 
+
+
+## Prob 5
+
+a. Display histograms with accuracies and AUCs from random classifiers. (see below)
+
+b. Is your model significant? Assume that model is significant if p-value from permutation test is lower
+than 0.05. (The model is significant, since p-values are 0 for both mean accuracy and mean AUC)
+
+!["Histogram of accuracies"](./hist1.PNG)
+
+!["Histogram of AUC"](./hist2.PNG)
+
+```{r}
+## prob 5
+# permutation test
+# m
+acc0 <- rbm$quality$accuracyMean
+auc0 <- rbm$quality$ROC.AUC.MEAN
+# m'
+n_perm <- 50 # number of permutations
+autcon_perm <- autcon
+acc <- c()
+auc <- c()
+for(i in 1:n_perm){
+  autcon_perm$decision <- sample(autcon_perm$decision)
+  out_perm <- rosetta(autcon_perm, cvNum = 10, roc = TRUE, clroc = "autism",
+                      underSample = FALSE)
+  acc[i] <- out_perm$quality$accuracyMean
+  auc[i] <- out_perm$quality$ROC.AUC.MEAN
+  print(paste0(round(i/n_perm*100),"%"))
+}
+# results
+# accuracy
+pValueAcc <- length(which(acc >= acc0))/length(acc)
+hist(acc, col="gray", xlim=c(0,1), main="permutation test",
+     sub=ifelse(pValueAcc < 0.05, "P < 0.05","ns"), xlab="accuracy")
+abline(v = acc0, col="darkblue", lwd=3, lty=2)
+# AUC
+pValueAUC <- length(which(auc >= auc0))/length(auc)
+hist(auc, col="gray", xlim=c(0,1), main="permutation test",
+     sub=ifelse(pValueAUC < 0.05, "P < 0.05","ns"), xlab="AUC")
+abline(v = auc0, col="darkblue", lwd=3, lty=2)
+```
+
+## Prob 6
+
+a. Report the values of the rule filtration parameters: min accuracy, min decision coverage? (0.88 for min accuracy, and 0.24 for min decision coverage)
+
+b. Can you notice the separation between the autism and control decision classes? Use the Select by
+decision drop-down list. (The separation is well detected, where control has a more compact cluster while autism has three sub groups.)
+
+c. Describe shortly differences between the structure of the sub-networks. (network for control is centered around PPOX, MAP7 and NCKAP5L and has more connections, and autism has three sparse sub-networks)
+
+d. Investigate the connections presented on the networks. Find and report the strongest connected nodes
+for each decision. (strongest node for control should be MAP7, and PHPN1 for autism)
+
+e. Inspect the vis variable and describe briefly what kind of the information is stored there. (there are three categories "all,control, autism", containing statistical information such as accuracy, support and structure information etc.)
+
+!["Original Net"](./OldNet.png)
+
+```{r,evel=F}
+## prob 6
+#vis <- visunet(rbm$main, type = "RDF")
+
+``` 
+
+## Prob 7
+Overlapped genes in both datasets are: 
+
+!["Overlapped genes"](./overlap.PNG)
+
+```{R}
+## prob 7
+SFARI <- readRDS('SFARI_Genes.RDS')
+overlapped_genes <- SFARI[which(SFARI$gene.symbol %in% vis$all$nodes$label),]
+print("Overlapped genes in both datasets are:")
+overlapped_genes[,2:3]
+```
+
+
+## Prob 8
+It shows that of the stared genes, "COX2", "TMLHE-AS1" and "TSPOAP1" are the common/overlapped genes by both dicisions, which can be interpreted that these three genes tends to play key role in determining control vs autism.
+
+
+!["Customized Net"](./NewNet.png)
+
+```{r,eval=F}
+## prob 8
+#create a new variable that contains node information for the "all" decision
+nodes_RNO <- vis$all$nodes
+#create a new vector of variables: shape. "dot" is the default shape of nodes
+nodes_RNO$shape <- rep("dot", length(nodes_RNO$label))
+#mark selected genes as stars using the label attribute
+nodes_RNO$shape[which(as.character(nodes_RNO$label) %in%
+                        overlapped_genes$gene.symbol)] <- "star"
+#create the node object list
+nodesL <- list(nodes = nodes_RNO,CustCol = c("shape"))
+#rerun VisuNet with the new shape for nodes
+#vis_out2 <- visunet(rbm$main, CustObjectNodes = nodesL)
+
+```
+
+
+
+
+## Appendix code
+```{r ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+```

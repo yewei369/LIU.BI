@@ -1,0 +1,209 @@
+---
+title: "Lab3_JunLi_0"
+subtitle: "Bioinformatics -- 732A51"
+author: "Jun Li"
+date: '2020-12-07'
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval=TRUE,echo=F,
+                      message = F, warning = F, error = F,
+                      fig.width=7, fig.height=5, fig.align="center")
+```
+
+```{r}
+library(ape)
+library(phyloch)
+
+library(ade4)
+library(mvMORPH)
+library(mvSLOUCH)
+library(ouch)
+library(slouch)
+library(rms)
+```
+
+
+## Question 1
+### part 1.1
+
+
+```{r,echo=T}
+### part 1.1
+##in order to install phyloch
+## Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS=TRUE)
+## devtools::install_github("fmichonneau/phyloch",dependencies=T)
+
+x <- paste("AJ5345", 26:49, sep = "")
+x <- c("Z73494", x)
+sylvia.seq <- read.GenBank(x)  ## download DNA sequences
+sylvia.clus <- clustal(sylvia.seq)  ## align DNA sequences
+
+taxa.sylvia <- attr(sylvia.seq, "species")
+names(taxa.sylvia) <- names(sylvia.seq)
+rm(sylvia.seq)
+taxa.sylvia[1] <- "Sylvia_atricapilla"
+taxa.sylvia[24] <- "Sylvia_abyssinica"
+
+#syl.K80 <- dist.dna(sylvia.clus, pairwise.deletion = TRUE) ##matrix of pairwise distances, using model K80 
+#nj.sylvia.K80 <- nj(syl.K80)  ## fit a phylogenetic tree based on distances
+
+f <- function(xx) root(nj(dist.dna(xx, p=TRUE)), "AJ534526") ## tree estimation function
+tr <- f(sylvia.clus) ## fit a tree
+nj.boot.sylvia <- boot.phylo(tr, sylvia.clus, f, 200,rooted = TRUE) ## bootstrap analysis
+
+tr$tip.label <- taxa.sylvia[tr$tip.label] ## rename tree tips
+
+plot(tr, no.margin = TRUE) 
+nodelabels(round(nj.boot.sylvia / 200, 2), bg = "white") ## label tree nodes
+add.scale.bar(length = 0.01)
+#write.tree(nj.est, "sylvia_nj_k80.tre")
+
+
+tr <- drop.tip(tr, "Chamaea_fasciata") ## drop missing-data tip
+sylvia.eco <- read.table("sylvia_data.txt")
+DF <- sylvia.eco[tr$tip.label, ] ## reorder geography data 
+
+```
+
+
+
+### part 1.2
+It shows that the SYM model gives the highest likelihood, therefore considered as the optimal model in this case. And the most likely ancester comes from "temptrop" region. Transition between trop and temptrop has the highest rate of 14.8 with higher variance, temptrop and temp of 4.9 with lower variance, while trop and temp of almost zero with unknown variance. Conclusion is that the ancestor dates back from temptrop region, then larger proportion migrates to trop and less to temp, and no interleves between trop and temp.
+
+
+
+```{r}
+### part 1.2
+syl.er <- ace(DF$geo.range, tr, type="d", model="ER")
+syl.ard <- ace(DF$geo.range, tr, type="d", model="ARD")
+syl.sym <- ace(DF$geo.range, tr, type="d", model="SYM")
+
+print("Here comes the estimation by ER:")
+syl.er
+print("Here comes the estimation by ARD:")
+syl.ard
+print("Here comes the estimation by SYM:")
+syl.sym
+```
+
+
+## Question 2
+### part 2.1
+A phylogeny tree, histograms and scatter plot for size and range data is shown as below. Species have mean size of 14.3, max size of 266.5 and min size of 0.04.
+
+
+```{r}
+### part 2.1
+data(carni70)
+tre<-carni70$tre
+tab<-carni70$tab
+
+tree<-as.phylo(newick2phylog(tre))
+plot(tree)  ## phylogeny tree
+
+hist(tab$size,breaks=100)
+hist(tab$range,breaks=100)
+plot(tab$size,tab$range)
+#tree_root<-root(tree,"Puma_concolor")
+#ace.sym <- ace(tab$range, tree, type="c")
+#print("Here comes the estimation by SYM:")
+#ace.sym
+```
+
+### part 2.2
+Results from different models are as below:
+
+Model 1: AIC value for fitting variable size and range is 652 respective 533.
+
+Model 2: AIC value 1187
+
+Model 3: AIC value for fitting variable size and range is 654 respective 503
+
+Model 4: AIC value 1161
+
+Model 5: AIC value 1205
+
+Therefore, Model 3 fitting traits as independent OU processes has the lowest AIC value, and should be the optimal one.
+
+```{r}
+### part 2.2
+
+x<-tab$size
+y<-tab$range
+tr1<-multi2di(tree)
+tab=tab[tr1$tip.label,]
+
+print("Model 1:")
+#pic.x<-pic(x,phy = tr1)
+#pic.y<-pic(y,phy = tr1)
+#cor.test(pic.x,pic.y)
+#p-value is 0.3481, therefore hypothesis "true correlation is equal to 0" can not be rejected, thus two traits are independent, which conforms with the assumed model
+#summary(lm(pic.y~pic.x-1))
+
+fit11<-mvBM(tr1, tab$size, model="BM1", method="pic")
+fit12<-mvBM(tr1, tab$range, model="BM1", method="pic")
+#AIC(fit11);AIC(fit12)
+#LRT(fit11,fit12)
+``` 
+
+
+
+
+
+```{r}
+print("Model 2:")
+#bm<- corBrownian(phy=tr1)
+#fit2<-Gls(range ~ size, correlation=bm, data=as.data.frame(tab))
+#fit2
+#print(paste("AIC value is:",AIC(fit2)))
+#P-value is 0.409 for intercept and 0.35 for size coefficient. Therefore there is no significant linear relationship between traits, which conflicts with the assumed model.
+
+fit2<-mvBM(tr1, tab, model="BM1", method="pic")
+```
+
+
+
+
+
+```{r}
+print("Model 3:")
+
+fit31<- mvOU(tree=tr1,data=tab$size,  model="OU1")
+fit32<- mvOU(tree=tr1,data=tab$range,  model="OU1")
+#LRT(fit31,fit32)
+#AIC(fit31);AIC(fit32)
+
+```
+
+Model 4:
+
+
+
+```{r}
+print("Model 4:")
+fit4<- mvOU(tree=tr1,data=tab,  model="OU1")
+
+```
+
+Model 5:
+
+```{r}
+print("Model 5:")
+fit5<-mvslouchModel(tr1,mData=as.matrix(tab),kY=1)
+#fit51<-mvBM(tr1, tab$size, model="BM1", method="pic")
+#fit52<-mvOU(tree=tr1,data=tab$range,  model="OU1")
+#LRT(fit51,fit52)
+fit5
+```
+
+
+
+
+
+
+## Appendix code
+```{r ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+```
